@@ -3,11 +3,12 @@ from PyPDF2 import PdfReader
 import re
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain.prompts import PromptTemplate
-from langchain.chains import RetrievalQA
-from langchain_community.llms import HuggingFacePipeline
+from langchain_core.prompts import PromptTemplate
+from langchain_classic.chains import create_retrieval_chain
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
+from langchain_huggingface import HuggingFacePipeline
 from transformers import pipeline
 
 # PAGE CONFIG
@@ -19,7 +20,7 @@ st.set_page_config(
 
 st.title("🤖 RAG Chatbot")
 
-# SIDEBAR 
+# SIDEBAR
 with st.sidebar:
     st.header("Upload PDF")
     file = st.file_uploader(
@@ -49,9 +50,9 @@ if file is not None:
     # CLEAN TEXT
     text = re.sub(r'Page \d+', '', text)
     text = re.sub(r'\n+', '\n', text)
-    text = re.sub(r'', '', text)
+    text = re.sub(r'', '', text)
 
-    # CHUNKING 
+    # CHUNKING
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=400,
         chunk_overlap=80,
@@ -66,29 +67,29 @@ if file is not None:
         if len(chunk.strip()) > 40
     ]
 
-    #  EMBEDDINGS 
+    #  EMBEDDINGS
     embeddings = HuggingFaceEmbeddings(
         model_name="all-MiniLM-L6-v2"
     )
 
-    # VECTOR STORE 
+    # VECTOR STORE
     vector_store = FAISS.from_texts(
         chunks,
         embeddings
     )
 
-    # USER QUESTION 
+    # USER QUESTION
     user_question = st.chat_input(
         "Ask your question..."
     )
 
     if user_question:
 
-        # USER MESSAGE 
+        # USER MESSAGE
         with st.chat_message("user"):
             st.write(user_question)
 
-        # QUERY ENHANCEMENT 
+        # QUERY ENHANCEMENT
         query = f"topic: {user_question}"
 
         # RETRIEVER
@@ -101,7 +102,7 @@ if file is not None:
             }
         )
 
-        # LLM 
+        # LLM
         hf_pipeline = pipeline(
             "text-generation",
             model="google/flan-t5-base",
@@ -112,42 +113,31 @@ if file is not None:
             pipeline=hf_pipeline
         )
 
-        # PROMPT 
+        # PROMPT
         prompt_template = """
-
 Rules:
 - Give point-wise answers
 - Upload Q&A type pdf file
-
 - If answer is not found:
   "Kindly give the feedback"
-
 Context:
 {context}
-
 Question:
-{question}
-
+{input}
 Answer:
 """
-
         prompt = PromptTemplate(
             template=prompt_template,
-            input_variables=["context", "question"]
+            input_variables=["context", "input"]
         )
 
         # QA CHAIN
-        chain = RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=retriever,
-            chain_type_kwargs={
-                "prompt": prompt
-            }
-        )
+        combine_docs_chain = create_stuff_documents_chain(llm, prompt)
+        chain = create_retrieval_chain(retriever, combine_docs_chain)
 
-        #  RESPONSE 
-        response = chain.run(user_question)
+        #  RESPONSE
+        result = chain.invoke({"input": user_question})
+        response = result["answer"]
 
         # ASSISTANT MESSAGE
         with st.chat_message("assistant"):
