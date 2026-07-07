@@ -105,8 +105,9 @@ if file is not None:
         # LLM
         hf_pipeline = pipeline(
             "text-generation",
-            model="google/flan-t5-base",
-            max_new_tokens=256
+            model="Qwen/Qwen2.5-0.5B-Instruct",
+            max_new_tokens=256,
+            return_full_text=False
         )
 
         llm = HuggingFacePipeline(
