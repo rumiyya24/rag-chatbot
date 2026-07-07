@@ -5,11 +5,30 @@ import re
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_core.prompts import PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
-from langchain_huggingface import HuggingFacePipeline
+from langchain_huggingface import HuggingFacePipeline, ChatHuggingFace
 from transformers import pipeline
+
+@st.cache_resource
+def load_embeddings():
+    return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
+@st.cache_resource
+def load_llm_pipeline():
+    hf_pipeline = pipeline(
+        "text-generation",
+        model="Qwen/Qwen2.5-0.5B-Instruct",
+        max_new_tokens=256,
+        return_full_text=False
+    )
+    llm = HuggingFacePipeline(pipeline=hf_pipeline)
+    return ChatHuggingFace(llm=llm)
+    
+@st.cache_resource
+def build_vector_store(chunks, _embeddings):
+    return FAISS.from_texts(chunks, _embeddings)
 
 # PAGE CONFIG
 st.set_page_config(
@@ -19,6 +38,8 @@ st.set_page_config(
 )
 
 st.title("🤖 RAG Chatbot")
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 # SIDEBAR
 with st.sidebar:
@@ -35,6 +56,11 @@ def feedback_dialog(message):
 
 # MAIN
 if file is not None:
+
+    # DISPLAY CHAT HISTORY
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
 
     # READ PDF
     pdf_reader = PdfReader(file)
@@ -68,15 +94,10 @@ if file is not None:
     ]
 
     #  EMBEDDINGS
-    embeddings = HuggingFaceEmbeddings(
-        model_name="all-MiniLM-L6-v2"
-    )
+    embeddings = load_embeddings()
 
     # VECTOR STORE
-    vector_store = FAISS.from_texts(
-        chunks,
-        embeddings
-    )
+    vector_store = build_vector_store(chunks, embeddings)
 
     # USER QUESTION
     user_question = st.chat_input(
@@ -86,11 +107,9 @@ if file is not None:
     if user_question:
 
         # USER MESSAGE
+        st.session_state.messages.append({"role": "user", "content": user_question})
         with st.chat_message("user"):
             st.write(user_question)
-
-        # QUERY ENHANCEMENT
-        query = f"topic: {user_question}"
 
         # RETRIEVER
         retriever = vector_store.as_retriever(
@@ -103,34 +122,16 @@ if file is not None:
         )
 
         # LLM
-        hf_pipeline = pipeline(
-            "text-generation",
-            model="Qwen/Qwen2.5-0.5B-Instruct",
-            max_new_tokens=256,
-            return_full_text=False
-        )
+        llm = load_llm_pipeline()
 
-        llm = HuggingFacePipeline(
-            pipeline=hf_pipeline
-        )
-
-        # PROMPT
-        prompt_template = """
-Rules:
-- Give point-wise answers
-- Upload Q&A type pdf file
-- If answer is not found:
-  "Kindly give the feedback"
-Context:
-{context}
-Question:
-{input}
-Answer:
-"""
-        prompt = PromptTemplate(
-            template=prompt_template,
-            input_variables=["context", "input"]
-        )
+       # PROMPT
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a helpful assistant answering questions about an "
+                       "uploaded PDF. Answer only using the provided context. Give "
+                       "point-wise answers. If the answer is not in the context, "
+                       "say \"Kindly give the feedback\" instead of guessing."),
+            ("human", "Context:\n{context}\n\nQuestion:\n{input}")
+        ])
 
         # QA CHAIN
         combine_docs_chain = create_stuff_documents_chain(llm, prompt)
@@ -141,6 +142,7 @@ Answer:
         response = result["answer"]
 
         # ASSISTANT MESSAGE
+        st.session_state.messages.append({"role": "assistant", "content": response})
         with st.chat_message("assistant"):
 
             st.write(response)
