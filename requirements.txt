@@ -14,3 +14,4 @@ PyPDF2
 torch
 torchvision==0.27.1
 tiktoken
+rank_bm25

@@ -9,6 +9,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_huggingface import HuggingFacePipeline, ChatHuggingFace
+from langchain_classic.chains import create_retrieval_chain
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
+from langchain_community.retrievers import BM25Retriever
+from langchain_classic.retrievers import EnsembleRetriever
 from transformers import pipeline
 
 @st.cache_resource
@@ -111,14 +115,22 @@ if file is not None:
         with st.chat_message("user"):
             st.write(user_question)
 
-        # RETRIEVER
-        retriever = vector_store.as_retriever(
+        # RETRIEVER (hybrid: BM25 keyword search + FAISS semantic search)
+        bm25_retriever = BM25Retriever.from_texts(chunks)
+        bm25_retriever.k = 3
+
+        faiss_retriever = vector_store.as_retriever(
             search_type="mmr",
             search_kwargs={
                 "k": 3,
                 "fetch_k": 20,
                 "lambda_mult": 0.7
             }
+        )
+
+        retriever = EnsembleRetriever(
+            retrievers=[bm25_retriever, faiss_retriever],
+            weights=[0.4, 0.6]
         )
 
         # LLM
