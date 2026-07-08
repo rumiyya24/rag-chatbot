@@ -13,6 +13,11 @@ from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_community.retrievers import BM25Retriever
 from langchain_classic.retrievers import EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever
+from langchain_classic.retrievers import EnsembleRetriever
+from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
+from langchain_classic.retrievers.document_compressors import CrossEncoderReranker
 from transformers import pipeline
 
 @st.cache_resource
@@ -33,6 +38,11 @@ def load_llm_pipeline():
 @st.cache_resource
 def build_vector_store(chunks, _embeddings):
     return FAISS.from_texts(chunks, _embeddings)
+
+@st.cache_resource
+def load_reranker():
+    cross_encoder = HuggingFaceCrossEncoder(model_name="cross-encoder/ms-marco-MiniLM-L-6-v2")
+    return CrossEncoderReranker(model=cross_encoder, top_n=3)
 
 # PAGE CONFIG
 st.set_page_config(
@@ -117,22 +127,29 @@ if file is not None:
 
         # RETRIEVER (hybrid: BM25 keyword search + FAISS semantic search)
         bm25_retriever = BM25Retriever.from_texts(chunks)
-        bm25_retriever.k = 3
+        bm25_retriever.k = 10
 
         faiss_retriever = vector_store.as_retriever(
             search_type="mmr",
             search_kwargs={
-                "k": 3,
-                "fetch_k": 20,
+                "k": 10,
+                "fetch_k": 30,
                 "lambda_mult": 0.7
             }
         )
 
-        retriever = EnsembleRetriever(
+        hybrid_retriever = EnsembleRetriever(
             retrievers=[bm25_retriever, faiss_retriever],
             weights=[0.4, 0.6]
         )
 
+        # RERANKER (cross-encoder narrows hybrid candidates down to the best 3)
+        reranker = load_reranker()
+        retriever = ContextualCompressionRetriever(
+            base_compressor=reranker,
+            base_retriever=hybrid_retriever
+        )
+        
         # LLM
         llm = load_llm_pipeline()
 
