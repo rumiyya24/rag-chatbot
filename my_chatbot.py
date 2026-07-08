@@ -84,11 +84,12 @@ if file is not None:
         if page_text:
             text += page_text
 
-    # CLEAN TEXT
+   # CLEAN TEXT
     text = re.sub(r'Page \d+', '', text)
     text = re.sub(r'\n+', '\n', text)
-    text = re.sub(r'', '', text)
-
+    text = re.sub(r' +', ' ', text)  # collapse multiple spaces
+    text = re.sub(r'(\w) -(\w)', r'\1-\2', text)  # fix "word -word" -> "word-word"
+    
     # CHUNKING
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=400,
