@@ -77,6 +77,15 @@ if file is not None:
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.write(message["content"])
+            if message["role"] == "assistant" and "sources" in message:
+                with st.expander(f"📄 View sources ({len(message['sources'])})"):
+                    for i, source in enumerate(message["sources"], 1):
+                        with st.container(border=True):
+                            label = f"Source {i}" + (" · most relevant" if i == 1 else "")
+                            st.caption(label)
+                            sentences = re.split(r'(?<=[.!?])\s+', source.strip())
+                            formatted = "\n\n".join(s.strip() for s in sentences if s.strip())
+                            st.markdown(formatted)
 
     # READ PDF
     pdf_reader = PdfReader(file)
@@ -210,12 +219,23 @@ if file is not None:
             "chat_history": chat_history_messages
         })
         response = result["answer"]
+        sources = [doc.page_content for doc in result["context"]]
 
         # ASSISTANT MESSAGE
-        st.session_state.messages.append({"role": "assistant", "content": response})
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": response,
+            "sources": sources
+        })
         with st.chat_message("assistant"):
 
             st.write(response)
+
+            with st.expander(f"📄 View sources ({len(sources)})"):
+                for i, source in enumerate(sources, 1):
+                    with st.container(border=True):
+                        st.caption(f"Source {i}")
+                        st.markdown(source.strip().replace("\n", " "))
 
             st.divider()
 
