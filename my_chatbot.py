@@ -23,15 +23,20 @@ def load_embeddings():
 
 @st.cache_resource
 def load_llm_pipeline():
+    import torch
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
+
     hf_pipeline = pipeline(
         "text-generation",
-        model="Qwen/Qwen2.5-0.5B-Instruct",
-        max_new_tokens=256,
-        return_full_text=False
+        model="Qwen/Qwen2.5-1.5B-Instruct",
+        max_new_tokens=450,
+        return_full_text=False,
+        device=device,
+        do_sample=False
     )
     llm = HuggingFacePipeline(pipeline=hf_pipeline)
     return ChatHuggingFace(llm=llm)
-
+    
 @st.cache_resource
 def build_vector_store(chunks, _embeddings):
     return FAISS.from_texts(chunks, _embeddings)
@@ -89,7 +94,7 @@ if file is not None:
     text = re.sub(r'\n+', '\n', text)
     text = re.sub(r' +', ' ', text)  # collapse multiple spaces
     text = re.sub(r'(\w) -(\w)', r'\1-\2', text)  # fix "word -word" -> "word-word"
-    
+
     # CHUNKING
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=400,
@@ -169,8 +174,19 @@ if file is not None:
         prompt = ChatPromptTemplate.from_messages([
             ("system", "You are a helpful assistant answering questions about an "
                        "uploaded PDF. Answer only using the provided context. Give "
-                       "point-wise answers. If the answer is not in the context, "
-                       "say \"Kindly give the feedback\" instead of guessing."),
+                       "point-wise answers using plain sentences or bullet points, "
+                       "not code-comment style (no lines starting with #) unless the "
+                       "answer itself is a code snippet from the context. "
+                      "You must reuse the exact table names, column names, and "
+                       "values from the context. Do not invent new table names, "
+                       "column names, or example data, even if they seem plausible. "
+                       "If the context contains an example, quote or closely paraphrase "
+                       "it using its exact identifiers. Stop once you have covered what "
+                       "the context provides. Do not continue with unrelated content "
+                       "from other topics. "
+                       "provides, rather than continuing with more content. If the "
+                       "answer is not in the context, say \"Kindly give the feedback\" "
+                       "instead of guessing."),
             MessagesPlaceholder("chat_history"),
             ("human", "Context:\n{context}\n\nQuestion:\n{input}")
         ])
